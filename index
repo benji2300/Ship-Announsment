@@ -7,7 +7,7 @@
     <!-- Google Fonts for Maritime look -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     
-    <!-- FIREBASE TILFØJET HER -->
+    <!-- Firebase Libraries (Version 8 - passer bedst til denne type simple HTML-fil) -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
@@ -575,17 +575,17 @@
 
     <script>
         // ==========================================
-        // SÆT DIN FIREBASE CONFIG IND HERUNDER:
+        // DIN FIREBASE KONFIGURATION (Indsat her)
         // ==========================================
         const firebaseConfig = {
-            // SLET DETTE OG INDSÆT DIN KODE FRA TRIN 2 HER
-            apiKey: "DIN_API_KEY",
-            authDomain: "dit-projekt.firebaseapp.com",
-            databaseURL: "https://dit-projekt-default-rtdb.europe-west1.firebasedatabase.app",
-            projectId: "dit-projekt",
-            storageBucket: "dit-projekt.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abc123def"
+          apiKey: "AIzaSyDklE6w4aLx3hrg5jZJWF93JuchJhoe9ec",
+          authDomain: "ship-announcement-system.firebaseapp.com",
+          databaseURL: "https://ship-announcement-system-default-rtdb.europe-west1.firebasedatabase.app",
+          projectId: "ship-announcement-system",
+          storageBucket: "ship-announcement-system.firebasestorage.app",
+          messagingSenderId: "444540530525",
+          appId: "1:444540530525:web:63443a1cbb49ded2d402b4",
+          measurementId: "G-Z508D27V0K"
         };
 
         // Initialiser Firebase
