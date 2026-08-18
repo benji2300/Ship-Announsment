@@ -264,16 +264,6 @@
             gap: 6px;
         }
 
-        .form-select, .form-input, .file-input {
-            width: 100%;
-            padding: 8px 12px;
-            background-color: var(--marine-card);
-            border: 1px solid var(--marine-accent);
-            border-radius: 6px;
-            color: var(--text-white);
-            font-size: 0.9rem;
-        }
-        
         .locked-key-box {
             padding: 8px 12px;
             background: rgba(42, 157, 143, 0.15);
@@ -290,6 +280,52 @@
             font-size: 0.75rem;
             color: var(--text-dim);
             margin-top: 2px;
+        }
+
+        /* Toggle Switch Styles (ON/OFF knap) */
+        .switch-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+        .switch input { 
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--marine-dark);
+            transition: .4s;
+            border: 1px solid var(--text-dim);
+            border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-dim);
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: var(--success-green);
+            border-color: var(--success-green);
+        }
+        input:checked + .slider:before {
+            transform: translateX(20px);
+            background-color: white;
         }
 
         /* Language Checkboxes */
@@ -514,11 +550,23 @@
                         <div class="audio-status">Voice ID: <strong style="color:var(--gold-accent)">ccflMOX8sqdvzn7NBkqd</strong></div>
                     </div>
 
-                    <!-- Chime / Audio signal before speech -->
+                    <!-- Chime / Audio signal låst fast med ON/OFF knap -->
                     <div class="control-group">
-                        <label for="chimeFile">🔔 SIGNAL / CHIME (BEFORE ANNOUNCEMENT):</label>
-                        <input type="file" id="chimeFile" accept="audio/*" class="file-input" onchange="handleChimeUpload(event)">
-                        <div id="chimeStatus" class="audio-status">No audio file selected (default chime tone used)</div>
+                        <label>🔔 SIGNAL / CHIME (BEFORE ANNOUNCEMENT):</label>
+                        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--marine-card); padding: 8px 12px; border: 1px solid var(--marine-accent); border-radius: 6px;">
+                            <div style="display: flex; align-items: center; gap: 8px; color: var(--success-green); font-size: 0.9rem;">
+                                <span>✅ Fastlåst signal (chime.mp3)</span>
+                            </div>
+                            
+                            <!-- Toggle Switch for On/Off -->
+                            <div class="switch-container">
+                                <span style="font-size: 0.85rem; color: var(--text-white); font-weight: bold;" id="chimeToggleText">ON</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="chimeToggle" checked onchange="document.getElementById('chimeToggleText').innerText = this.checked ? 'ON' : 'OFF'; document.getElementById('chimeToggleText').style.color = this.checked ? 'var(--text-white)' : 'var(--text-dim)'">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -618,7 +666,6 @@
         let savedAnnouncements = [];
         let activeFolder = "Safety";
         let currentTranslations = {};
-        let uploadedChimeAudio = null;
 
         // Lyt efter ændringer i Firebase LIVE (Sync over flere PC'er)
         dbRef.on('value', (snapshot) => {
@@ -664,74 +711,33 @@
             });
         });
 
-        // Handle File Upload for Chime
-        function handleChimeUpload(event) {
-            const file = event.target.files[0];
-            const statusDiv = document.getElementById('chimeStatus');
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    uploadedChimeAudio = e.target.result;
-                    statusDiv.innerText = ` Custom audio loaded: ${file.name}`;
-                    statusDiv.style.color = 'var(--success-green)';
-                };
-                reader.readAsDataURL(file);
-            } else {
-                uploadedChimeAudio = null;
-                statusDiv.innerText = "No audio file selected (default chime tone used)";
-                statusDiv.style.color = 'var(--text-dim)';
-            }
-        }
-
-        // Play Chime
+        // ===================================
+        // PLAY CHIME FUNKTION (Opdateret)
+        // ===================================
         function playChime() {
             return new Promise((resolve) => {
-                if (uploadedChimeAudio) {
-                    const audio = new Audio(uploadedChimeAudio);
-                    audio.onended = resolve;
-                    audio.onerror = resolve;
-                    audio.play().catch(e => resolve());
-                } else {
-                    try {
-                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        const osc1 = audioCtx.createOscillator();
-                        const osc2 = audioCtx.createOscillator();
-                        const gain = audioCtx.createGain();
-
-                        osc1.type = 'sine';
-                        osc2.type = 'sine';
-                        
-                        osc1.connect(gain);
-                        osc2.connect(gain);
-                        gain.connect(audioCtx.destination);
-
-                        const now = audioCtx.currentTime;
-                        
-                        osc1.frequency.setValueAtTime(783.99, now); // G5
-                        osc2.frequency.setValueAtTime(659.25, now + 0.35); // E5
-
-                        gain.gain.setValueAtTime(0.3, now);
-                        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
-
-                        osc1.start(now);
-                        osc1.stop(now + 0.35);
-                        
-                        osc2.start(now + 0.35);
-                        osc2.stop(now + 0.9);
-
-                        setTimeout(() => {
-                            audioCtx.close();
-                            resolve();
-                        }, 1000);
-                    } catch(e) {
-                        resolve();
-                    }
+                // Tjekker om toggle-knappen står til ON
+                const chimeEnabled = document.getElementById('chimeToggle').checked;
+                
+                if (!chimeEnabled) {
+                    return resolve(); // Gå direkte videre uden lyd, hvis den er slået fra
                 }
+
+                // Spiller filen direkte fra GitHub mappen
+                const audio = new Audio('chime.mp3'); 
+                audio.onended = resolve;
+                audio.onerror = () => {
+                    console.error("Kunne ikke afspille 'chime.mp3'. Har du husket at uploade den til GitHub?");
+                    resolve(); // Fortsæt til talen selvom lyden fejler
+                };
+                audio.play().catch(e => {
+                    resolve();
+                });
             });
         }
 
         // ===================================
-        // ELEVENLABS TTS INTEGRATION (Bruger nu fastlåst nøgle)
+        // ELEVENLABS TTS INTEGRATION 
         // ===================================
         async function speakElevenLabs(text) {
             const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
