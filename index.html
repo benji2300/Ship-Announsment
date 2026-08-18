@@ -7,7 +7,7 @@
     <!-- Google Fonts for Maritime look -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     
-    <!-- Firebase Libraries (Version 8 - passer bedst til denne type simple HTML-fil) -->
+    <!-- Firebase Libraries (Version 8) -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
@@ -273,6 +273,18 @@
             color: var(--text-white);
             font-size: 0.9rem;
         }
+        
+        .locked-key-box {
+            padding: 8px 12px;
+            background: rgba(42, 157, 143, 0.15);
+            border: 1px solid var(--success-green);
+            border-radius: 6px;
+            color: var(--success-green);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
         .audio-status {
             font-size: 0.75rem;
@@ -493,10 +505,12 @@
 
                 <!-- Controls Layout: ElevenLabs Integration & Signal Chime -->
                 <div class="controls-grid">
-                    <!-- ElevenLabs Integration -->
+                    <!-- ElevenLabs Integration låst fast i koden -->
                     <div class="control-group">
-                        <label for="elevenApiKey">🎙️ ELEVENLABS API KEY:</label>
-                        <input type="password" id="elevenApiKey" class="form-input" placeholder="Indtast ElevenLabs API Key" onchange="saveElevenApiKey(this.value)">
+                        <label>🎙️ ELEVENLABS API KEY:</label>
+                        <div class="locked-key-box">
+                            <span>✅ API-nøgle er låst fast i systemet</span>
+                        </div>
                         <div class="audio-status">Voice ID: <strong style="color:var(--gold-accent)">ccflMOX8sqdvzn7NBkqd</strong></div>
                     </div>
 
@@ -575,7 +589,7 @@
 
     <script>
         // ==========================================
-        // DIN FIREBASE KONFIGURATION (Indsat her)
+        // DIN FIREBASE KONFIGURATION
         // ==========================================
         const firebaseConfig = {
           apiKey: "AIzaSyDklE6w4aLx3hrg5jZJWF93JuchJhoe9ec",
@@ -591,12 +605,15 @@
         // Initialiser Firebase
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
-        const dbRef = database.ref('ship_pa_system'); // Her gemmes alt i databasen
+        const dbRef = database.ref('ship_pa_system'); 
 
-        // Global Constants & Variables
+        // ==========================================
+        // FASTLÅST ELEVENLABS NØGLE
+        // ==========================================
+        const LOCKED_ELEVENLABS_KEY = "sk_c84044e2725f2ced47294b5e46adf869db800fb50da8076a";
         const ELEVENLABS_VOICE_ID = "ccflMOX8sqdvzn7NBkqd";
         
-        // Disse starter tomme og bliver fyldt op fra Firebase
+        // Data variabler
         let folders = ["Safety", "Public", "All Pax Area", "Shop"];
         let savedAnnouncements = [];
         let activeFolder = "Safety";
@@ -610,16 +627,13 @@
                 if (data.folders) folders = data.folders;
                 if (data.announcements) savedAnnouncements = data.announcements;
                 
-                // Opdater skærmen når vi har modtaget ny data
                 loadFolders();
                 renderSavedAnnouncements();
             } else {
-                // Hvis databasen er helt tom (første gang), gem standard mapperne
                 saveDataToFirebase();
             }
         });
 
-        // Funktion til at skubbe data op til Firebase
         function saveDataToFirebase() {
             dbRef.set({
                 folders: folders,
@@ -636,14 +650,7 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Initialize UI
         document.addEventListener('DOMContentLoaded', () => {
-            // Load saved ElevenLabs API Key if available (Bliver gemt lokalt på PC'en af sikkerhedshensyn)
-            const savedApiKey = localStorage.getItem('elevenlabs_api_key');
-            if (savedApiKey) {
-                document.getElementById('elevenApiKey').value = savedApiKey;
-            }
-
             document.getElementById('addFolderBtn').addEventListener('click', () => {
                 const name = prompt("Enter name for new folder:");
                 if (name && name.trim() !== "") {
@@ -651,15 +658,11 @@
                     if (!folders.includes(cleanName)) {
                         folders.push(cleanName);
                         activeFolder = cleanName;
-                        saveDataToFirebase(); // Gem i skyen
+                        saveDataToFirebase();
                     }
                 }
             });
         });
-
-        function saveElevenApiKey(key) {
-            localStorage.setItem('elevenlabs_api_key', key.trim()); // API Nøgler bør ikke ligge i den offentlige database
-        }
 
         // Handle File Upload for Chime
         function handleChimeUpload(event) {
@@ -680,7 +683,7 @@
             }
         }
 
-        // Play Chime (Custom uploaded audio or synthesized Web Audio chime)
+        // Play Chime
         function playChime() {
             return new Promise((resolve) => {
                 if (uploadedChimeAudio) {
@@ -728,21 +731,15 @@
         }
 
         // ===================================
-        // ELEVENLABS TTS INTEGRATION
+        // ELEVENLABS TTS INTEGRATION (Bruger nu fastlåst nøgle)
         // ===================================
         async function speakElevenLabs(text) {
-            const apiKey = document.getElementById('elevenApiKey').value.trim();
-            if (!apiKey) {
-                alert("Indtast venligst din ElevenLabs API Key i feltet for at afspille stemmen.");
-                return false;
-            }
-
             const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
                 method: 'POST',
                 headers: {
                     'Accept': 'audio/mpeg',
                     'Content-Type': 'application/json',
-                    'xi-api-key': apiKey
+                    'xi-api-key': LOCKED_ELEVENLABS_KEY
                 },
                 body: JSON.stringify({
                     text: text,
@@ -776,7 +773,6 @@
             });
         }
 
-        // Browser Fallback if API key is missing or fails
         function speakBrowser(text, lang) {
             return new Promise((resolve) => {
                 if (!('speechSynthesis' in window)) return resolve();
@@ -789,10 +785,8 @@
             });
         }
 
-        // Combined TTS function
         async function speakPromise(text, lang) {
-            const apiKey = document.getElementById('elevenApiKey').value.trim();
-            if (apiKey) {
+            if (LOCKED_ELEVENLABS_KEY) {
                 try {
                     await speakElevenLabs(text);
                     return;
@@ -843,12 +837,11 @@
             if (confirm(`Are you sure you want to delete folder "${folderName}" and its saved announcements?`)) {
                 folders = folders.filter(f => f !== folderName);
                 savedAnnouncements = savedAnnouncements.filter(a => a.folder !== folderName);
-                saveDataToFirebase(); // Gem ændringen i skyen
+                saveDataToFirebase();
                 if (activeFolder === folderName) activeFolder = "Safety";
             }
         }
 
-        // Translation logic using MyMemory API
         async function translateAndProcess() {
             const text = document.getElementById('sourceText').value.trim();
             if (!text) {
@@ -864,7 +857,6 @@
 
             currentTranslations = {};
 
-            // Medtag altid den originale skrevene tekst først
             currentTranslations['original'] = {
                 name: "Original Tekst",
                 text: text,
@@ -898,7 +890,6 @@
             renderOutputCards();
         }
 
-        // Render translation result cards
         function renderOutputCards() {
             const outputGrid = document.getElementById('outputGrid');
             outputGrid.innerHTML = '';
@@ -949,7 +940,6 @@
             }
         }
 
-        // Save announcement to active folder
         function saveCurrentAnnouncement() {
             const text = document.getElementById('sourceText').value.trim();
             if (!text) {
@@ -967,11 +957,10 @@
                 text: text
             };
 
-            // Undgå duplicates (sjældent, men for en sikkerheds skyld)
             if(!savedAnnouncements) savedAnnouncements = [];
             
             savedAnnouncements.push(newItem);
-            saveDataToFirebase(); // Sender det direkte op i skyen
+            saveDataToFirebase(); 
         }
 
         function renderSavedAnnouncements() {
@@ -1013,11 +1002,10 @@
         function deleteSavedItem(id) {
             if (confirm("Are you sure you want to delete this saved announcement?")) {
                 savedAnnouncements = savedAnnouncements.filter(a => a.id !== id);
-                saveDataToFirebase(); // Sletter det fra skyen
+                saveDataToFirebase();
             }
         }
 
-        // Helper functions
         function getTTSLangCode(code) {
             const map = {
                 'da': 'da-DK',
