@@ -575,10 +575,10 @@
                 
                 <textarea id="sourceText" placeholder="Skriv din besked her... (f.eks., 'Godaften alle passagerer. Vi ankommer til havnen om 15 minutter.')"></textarea>
 
-                <!-- Progress bar til Oplæsning -->
+                <!-- Progress bar til Samlet Oplæsning -->
                 <div id="progressContainer" class="playback-progress-container">
                     <div class="progress-header">
-                        <span id="progressTitle">🔊 AFSPILNING I GANG...</span>
+                        <span id="progressTitle">🔊 AFSPILLING I GANG...</span>
                         <span id="progressTimer">0:00 / 0:00</span>
                     </div>
                     <div class="progress-bar-bg">
@@ -715,9 +715,6 @@
         let activeFolder = "Safety";
         let currentTranslations = {};
 
-        // Variable til at styre progress interval
-        let activeProgressInterval = null;
-
         // Lyt efter ændringer i Firebase LIVE (Sync over flere PC'er)
         dbRef.on('value', (snapshot) => {
             const data = snapshot.val();
@@ -763,7 +760,7 @@
         });
 
         // ===================================
-        // HELPER FUNCTIONS FOR PROGRESS BAR
+        // HELPER FUNCTIONS FOR PROGRESS BAR & AUDIO PREFETCH
         // ===================================
         function formatTime(seconds) {
             const mins = Math.floor(seconds / 60);
@@ -771,78 +768,23 @@
             return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
         }
 
-        function playAudioWithProgress(audioElement, titleText) {
+        // Henter duration på en audio-kilde
+        function getAudioDuration(audio) {
             return new Promise((resolve) => {
-                const progressContainer = document.getElementById('progressContainer');
-                const progressBarFill = document.getElementById('progressBarFill');
-                const progressTimer = document.getElementById('progressTimer');
-                const progressTitle = document.getElementById('progressTitle');
-
-                progressContainer.style.display = 'block';
-                progressTitle.innerText = titleText || '🔊 AFSPILNING I GANG...';
-
-                if (activeProgressInterval) clearInterval(activeProgressInterval);
-
-                const updateProgress = () => {
-                    const current = audioElement.currentTime || 0;
-                    const duration = audioElement.duration || 0;
-
-                    if (duration > 0) {
-                        const pct = (current / duration) * 100;
-                        progressBarFill.style.width = `${pct}%`;
-                        progressTimer.innerText = `${formatTime(current)} / ${formatTime(duration)}`;
-                    } else {
-                        progressBarFill.style.width = '0%';
-                        progressTimer.innerText = `0:00 / 0:00`;
-                    }
-                };
-
-                activeProgressInterval = setInterval(updateProgress, 100);
-
-                audioElement.onended = () => {
-                    clearInterval(activeProgressInterval);
-                    progressBarFill.style.width = '100%';
-                    setTimeout(() => {
-                        progressContainer.style.display = 'none';
-                        progressBarFill.style.width = '0%';
-                    }, 500);
-                    resolve();
-                };
-
-                audioElement.onerror = () => {
-                    clearInterval(activeProgressInterval);
-                    progressContainer.style.display = 'none';
-                    resolve();
-                };
-
-                audioElement.play().catch(e => {
-                    clearInterval(activeProgressInterval);
-                    progressContainer.style.display = 'none';
-                    resolve();
-                });
-            });
-        }
-
-        // ===================================
-        // PLAY CHIME FUNKTION
-        // ===================================
-        function playChime() {
-            return new Promise((resolve) => {
-                const chimeEnabled = document.getElementById('chimeToggle').checked;
-                
-                if (!chimeEnabled) {
-                    return resolve();
+                if (audio.duration && !isNaN(audio.duration) && audio.duration !== Infinity) {
+                    return resolve(audio.duration);
                 }
-
-                const audio = new Audio('chime.mp3'); 
-                playAudioWithProgress(audio, '🔔 AFSPILLER SIGNAL (CHIME)...').then(resolve);
+                audio.onloadedmetadata = () => {
+                    resolve(audio.duration || 0);
+                };
+                audio.onerror = () => resolve(0);
+                // Hvis den hænger
+                setTimeout(() => resolve(audio.duration || 0), 2000);
             });
         }
 
-        // ===================================
-        // ELEVENLABS TTS INTEGRATION 
-        // ===================================
-        async function speakElevenLabs(text, titleLabel) {
+        // Henter ElevenLabs audio som et Audio-element uden at afspille det
+        async function fetchElevenLabsAudio(text) {
             const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
                 method: 'POST',
                 headers: {
@@ -867,35 +809,87 @@
 
             const blob = await response.blob();
             const audioUrl = URL.createObjectURL(blob);
-
             const audio = new Audio(audioUrl);
-            await playAudioWithProgress(audio, titleLabel || '🗣️ OPLÆSER UDKALD...');
-            URL.revokeObjectURL(audioUrl);
+            audio._objectUrl = audioUrl; // Gem til oprydning
+            return audio;
         }
 
-        function speakBrowser(text, lang) {
-            return new Promise((resolve) => {
-                if (!('speechSynthesis' in window)) return resolve();
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = lang || 'da-DK';
-                utterance.onend = resolve;
-                utterance.onerror = resolve;
-                window.speechSynthesis.speak(utterance);
-            });
-        }
+        // Hovedfunktion til at afspille en række af lydfiler med én samlet Progress Bar
+        async function playAudioQueueWithTotalProgress(queue) {
+            // queue: [{ name: 'Chime', audio: AudioElement }, { name: 'Danish', audio: AudioElement }, ...]
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBarFill = document.getElementById('progressBarFill');
+            const progressTimer = document.getElementById('progressTimer');
+            const progressTitle = document.getElementById('progressTitle');
 
-        async function speakPromise(text, lang, titleLabel) {
-            if (LOCKED_ELEVENLABS_KEY) {
-                try {
-                    await speakElevenLabs(text, titleLabel);
-                    return;
-                } catch (err) {
-                    console.error('ElevenLabs Error:', err);
-                    alert(`Fejl fra ElevenLabs: ${err.message}. Bruger browserens standardstemme som fallback.`);
-                }
+            progressContainer.style.display = 'block';
+            progressTitle.innerText = "⏳ KLARGØRER LYD...";
+            progressBarFill.style.width = '0%';
+            progressTimer.innerText = "0:00 / 0:00";
+
+            // Beregn varigheder for alle elementer i køen
+            let totalDuration = 0;
+            const durations = [];
+
+            for (let item of queue) {
+                const dur = await getAudioDuration(item.audio);
+                durations.push(dur);
+                totalDuration += dur;
             }
-            await speakBrowser(text, lang);
+
+            let accumulatedTime = 0;
+            let progressInterval = null;
+
+            for (let i = 0; i < queue.length; i++) {
+                const item = queue[i];
+                const audio = item.audio;
+                const dur = durations[i];
+
+                progressTitle.innerText = `🔊 AFSPILLER: ${item.name.toUpperCase()}`;
+
+                await new Promise((resolve) => {
+                    progressInterval = setInterval(() => {
+                        const currentItemTime = audio.currentTime || 0;
+                        const currentTotalTime = accumulatedTime + currentItemTime;
+
+                        if (totalDuration > 0) {
+                            const pct = Math.min((currentTotalTime / totalDuration) * 100, 100);
+                            progressBarFill.style.width = `${pct}%`;
+                            progressTimer.innerText = `${formatTime(currentTotalTime)} / ${formatTime(totalDuration)}`;
+                        }
+                    }, 100);
+
+                    audio.onended = () => {
+                        clearInterval(progressInterval);
+                        accumulatedTime += dur;
+                        if (audio._objectUrl) URL.revokeObjectURL(audio._objectUrl);
+                        resolve();
+                    };
+
+                    audio.onerror = () => {
+                        clearInterval(progressInterval);
+                        accumulatedTime += dur;
+                        if (audio._objectUrl) URL.revokeObjectURL(audio._objectUrl);
+                        resolve();
+                    };
+
+                    audio.play().catch(e => {
+                        clearInterval(progressInterval);
+                        accumulatedTime += dur;
+                        if (audio._objectUrl) URL.revokeObjectURL(audio._objectUrl);
+                        resolve();
+                    });
+                });
+            }
+
+            // Færdig
+            progressBarFill.style.width = '100%';
+            progressTimer.innerText = `${formatTime(totalDuration)} / ${formatTime(totalDuration)}`;
+            
+            setTimeout(() => {
+                progressContainer.style.display = 'none';
+                progressBarFill.style.width = '0%';
+            }, 800);
         }
 
         async function previewOriginalText() {
@@ -904,7 +898,22 @@
                 alert("Please type some text first.");
                 return;
             }
-            await playWithChime(text, 'da-DK', '🗣️ PREVIEW: DANISH');
+
+            const queue = [];
+
+            // Tjek Chime
+            if (document.getElementById('chimeToggle').checked) {
+                queue.push({ name: 'Chime', audio: new Audio('chime.mp3') });
+            }
+
+            // Hent stemme
+            try {
+                const audio = await fetchElevenLabsAudio(text);
+                queue.push({ name: 'Preview (Dansk)', audio: audio });
+                await playAudioQueueWithTotalProgress(queue);
+            } catch (err) {
+                alert(`Fejl ved hentning af lyd: ${err.message}`);
+            }
         }
 
         // Render Folders
@@ -1002,7 +1011,6 @@
 
             for (let langCode in currentTranslations) {
                 const item = currentTranslations[langCode];
-                const ttsLangCode = item.isOriginal ? 'da-DK' : getTTSLangCode(langCode);
                 const headerSymbol = item.isOriginal ? '✍️' : getFlag(langCode);
 
                 const card = document.createElement('div');
@@ -1017,7 +1025,7 @@
                             <input type="checkbox" id="chk_${langCode}" ${item.selectedForPlay ? 'checked' : ''} onchange="toggleLanguagePlayback('${langCode}', this.checked)">
                             Inkluder i samlet oplæsning
                         </label>
-                        <button class="btn btn-primary btn-small" onclick="playWithChime('${escapeQuote(item.text)}', '${ttsLangCode}', '🗣️ OPLÆSER: ${item.name.toUpperCase()}')">🔔 Læs op</button>
+                        <button class="btn btn-primary btn-small" onclick="playSingleTranslation('${langCode}')">🔔 Læs op</button>
                     </div>
                 `;
                 outputGrid.appendChild(card);
@@ -1030,20 +1038,62 @@
             }
         }
 
-        async function playWithChime(text, lang, titleLabel) {
-            await playChime();
-            await speakPromise(text, lang, titleLabel);
+        // Afspil én valgt oversættelse (med chime, hvis slået til)
+        async function playSingleTranslation(langCode) {
+            const item = currentTranslations[langCode];
+            if (!item) return;
+
+            const queue = [];
+
+            if (document.getElementById('chimeToggle').checked) {
+                queue.push({ name: 'Chime', audio: new Audio('chime.mp3') });
+            }
+
+            try {
+                const audio = await fetchElevenLabsAudio(item.text);
+                queue.push({ name: item.name, audio: audio });
+                await playAudioQueueWithTotalProgress(queue);
+            } catch (err) {
+                alert(`Fejl ved hentning af lyd: ${err.message}`);
+            }
         }
 
+        // Afspil alle valgte sprog i træk med samlet samlet varighed i Progress Bar
         async function playAllTranslations() {
-            await playChime();
+            const queue = [];
+
+            // 1. Chime først
+            if (document.getElementById('chimeToggle').checked) {
+                queue.push({ name: 'Chime', audio: new Audio('chime.mp3') });
+            }
+
+            // Vi viser en midlertidig besked, mens lydfilerne genereres fra ElevenLabs
+            const progressContainer = document.getElementById('progressContainer');
+            const progressTitle = document.getElementById('progressTitle');
+            progressContainer.style.display = 'block';
+            progressTitle.innerText = "⏳ GENERERER LYDFILER FOR ALLE SPROG...";
+
+            // 2. Hent lydfiler for alle valgte sprog
             for (let langCode in currentTranslations) {
                 const item = currentTranslations[langCode];
                 if (item.selectedForPlay) {
-                    const lang = item.isOriginal ? 'da-DK' : getTTSLangCode(langCode);
-                    await speakPromise(item.text, lang, `🗣️ OPLÆSER: ${item.name.toUpperCase()}`);
+                    try {
+                        const audio = await fetchElevenLabsAudio(item.text);
+                        queue.push({ name: item.name, audio: audio });
+                    } catch (err) {
+                        console.error(`Kunne ikke hente audio for ${item.name}`, err);
+                    }
                 }
             }
+
+            if (queue.length === 0) {
+                progressContainer.style.display = 'none';
+                alert("Ingen sprog valgt til oplæsning.");
+                return;
+            }
+
+            // 3. Afspil hele køen med én samlet progress bar
+            await playAudioQueueWithTotalProgress(queue);
         }
 
         function saveCurrentAnnouncement() {
