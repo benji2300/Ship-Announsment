@@ -618,7 +618,7 @@
                 </div>
 
                 <div id="ttsStatus" class="audio-status" style="margin:10px 0 14px;padding:10px 12px;background:rgba(0,168,232,.08);border-radius:6px;">
-                    🔊 Status: ElevenLabs stemme tilkoblet via Voice ID ccflMOX8sqdvzn7NBkqd.
+                    🔊 Status: ElevenLabs stemme tilkoblet via Voice ID ccflMOX8sqdvzn7NBkqd | Oversættelse: Multi-Server Fallback Engine
                 </div>
 
                 <div class="section-title" style="margin-bottom: 12px; font-size: 0.95rem;">SELECT TARGET LANGUAGES FOR TRANSLATION:</div>
@@ -703,7 +703,7 @@
         const dbRef = database.ref('ship_pa_system'); 
 
         // ==========================================
-        // FASTLÅST ELEVENLABS NØGLE OG ADGANGSKODE
+        // FASTLÅSTE API NØGLER & ADGANGSKODE
         // ==========================================
         const LOCKED_ELEVENLABS_KEY = "sk_c84044e2725f2ced47294b5e46adf869db800fb50da8076a";
         const ELEVENLABS_VOICE_ID = "ccflMOX8sqdvzn7NBkqd";
@@ -768,7 +768,6 @@
             return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
         }
 
-        // Henter duration på en audio-kilde
         function getAudioDuration(audio) {
             return new Promise((resolve) => {
                 if (audio.duration && !isNaN(audio.duration) && audio.duration !== Infinity) {
@@ -778,12 +777,10 @@
                     resolve(audio.duration || 0);
                 };
                 audio.onerror = () => resolve(0);
-                // Hvis den hænger
                 setTimeout(() => resolve(audio.duration || 0), 2000);
             });
         }
 
-        // Henter ElevenLabs audio som et Audio-element uden at afspille det
         async function fetchElevenLabsAudio(text) {
             const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
                 method: 'POST',
@@ -810,13 +807,11 @@
             const blob = await response.blob();
             const audioUrl = URL.createObjectURL(blob);
             const audio = new Audio(audioUrl);
-            audio._objectUrl = audioUrl; // Gem til oprydning
+            audio._objectUrl = audioUrl;
             return audio;
         }
 
-        // Hovedfunktion til at afspille en række af lydfiler med én samlet Progress Bar
         async function playAudioQueueWithTotalProgress(queue) {
-            // queue: [{ name: 'Chime', audio: AudioElement }, { name: 'Danish', audio: AudioElement }, ...]
             const progressContainer = document.getElementById('progressContainer');
             const progressBarFill = document.getElementById('progressBarFill');
             const progressTimer = document.getElementById('progressTimer');
@@ -827,7 +822,6 @@
             progressBarFill.style.width = '0%';
             progressTimer.innerText = "0:00 / 0:00";
 
-            // Beregn varigheder for alle elementer i køen
             let totalDuration = 0;
             const durations = [];
 
@@ -882,7 +876,6 @@
                 });
             }
 
-            // Færdig
             progressBarFill.style.width = '100%';
             progressTimer.innerText = `${formatTime(totalDuration)} / ${formatTime(totalDuration)}`;
             
@@ -901,12 +894,10 @@
 
             const queue = [];
 
-            // Tjek Chime
             if (document.getElementById('chimeToggle').checked) {
                 queue.push({ name: 'Chime', audio: new Audio('chime.mp3') });
             }
 
-            // Hent stemme
             try {
                 const audio = await fetchElevenLabsAudio(text);
                 queue.push({ name: 'Preview (Dansk)', audio: audio });
@@ -957,6 +948,50 @@
             }
         }
 
+        // ==========================================
+        // MULTI-SERVER TRANSLATION ENGINE (LIVSREDDER-LØSNING)
+        // ==========================================
+        async function fetchLingvaTranslation(text, targetLang) {
+            // Liste over offentlige Lingva-servere
+            const instances = [
+                'https://lingva.ml',
+                'https://lingva.lingva.ml',
+                'https://translate.plausibility.cloud'
+            ];
+
+            // 1. Prøv Lingva serverne først
+            for (let instance of instances) {
+                try {
+                    const url = `${instance}/api/v1/auto/${targetLang}/${encodeURIComponent(text)}`;
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.translation) {
+                            return data.translation;
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Kunne ikke hente fra ${instance}, prøver næste...`);
+                }
+            }
+
+            // 2. Direkte Google Translate fallback, hvis Lingva failer/CORS-blokeres
+            try {
+                const gUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+                const gRes = await fetch(gUrl);
+                if (gRes.ok) {
+                    const gData = await gRes.json();
+                    if (gData && gData[0]) {
+                        return gData[0].map(item => item[0]).join('');
+                    }
+                }
+            } catch (err) {
+                console.warn("Google fallback mislykkedes også", err);
+            }
+
+            throw new Error("Kunne ikke forbinde til oversættelsesservicerne.");
+        }
+
         async function translateAndProcess() {
             const text = document.getElementById('sourceText').value.trim();
             if (!text) {
@@ -984,9 +1019,7 @@
                 const langName = cb.getAttribute('data-name');
                 
                 try {
-                    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=autodetect|${targetLang}`);
-                    const data = await res.json();
-                    const translatedText = data.responseData.translatedText;
+                    const translatedText = await fetchLingvaTranslation(text, targetLang);
 
                     currentTranslations[targetLang] = {
                         name: langName,
@@ -994,9 +1027,10 @@
                         selectedForPlay: true
                     };
                 } catch (err) {
+                    console.error(err);
                     currentTranslations[targetLang] = {
                         name: langName,
-                        text: "Translation error.",
+                        text: "Oversættelsesfejl.",
                         selectedForPlay: false
                     };
                 }
@@ -1038,7 +1072,6 @@
             }
         }
 
-        // Afspil én valgt oversættelse (med chime, hvis slået til)
         async function playSingleTranslation(langCode) {
             const item = currentTranslations[langCode];
             if (!item) return;
@@ -1058,22 +1091,18 @@
             }
         }
 
-        // Afspil alle valgte sprog i træk med samlet samlet varighed i Progress Bar
         async function playAllTranslations() {
             const queue = [];
 
-            // 1. Chime først
             if (document.getElementById('chimeToggle').checked) {
                 queue.push({ name: 'Chime', audio: new Audio('chime.mp3') });
             }
 
-            // Vi viser en midlertidig besked, mens lydfilerne genereres fra ElevenLabs
             const progressContainer = document.getElementById('progressContainer');
             const progressTitle = document.getElementById('progressTitle');
             progressContainer.style.display = 'block';
             progressTitle.innerText = "⏳ GENERERER LYDFILER FOR ALLE SPROG...";
 
-            // 2. Hent lydfiler for alle valgte sprog
             for (let langCode in currentTranslations) {
                 const item = currentTranslations[langCode];
                 if (item.selectedForPlay) {
@@ -1092,7 +1121,6 @@
                 return;
             }
 
-            // 3. Afspil hele køen med én samlet progress bar
             await playAudioQueueWithTotalProgress(queue);
         }
 
@@ -1168,19 +1196,6 @@
             }
         }
 
-        function getTTSLangCode(code) {
-            const map = {
-                'da': 'da-DK',
-                'en': 'en-US',
-                'de': 'de-DE',
-                'fr': 'fr-FR',
-                'it': 'it-IT',
-                'zh': 'zh-CN',
-                'fo': 'fo-FO'
-            };
-            return map[code] || 'en-US';
-        }
-
         function getFlag(code) {
             const map = {
                 'da': '🇩🇰',
@@ -1192,10 +1207,6 @@
                 'fo': '🇫🇴'
             };
             return map[code] || '';
-        }
-
-        function escapeQuote(str) {
-            return str.replace(/'/g, "\\'").replace(/\n/g, ' ');
         }
     </script>
 </body>
