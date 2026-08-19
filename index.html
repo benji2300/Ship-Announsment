@@ -656,10 +656,11 @@
         const dbRef = database.ref('ship_pa_system'); 
 
         // ==========================================
-        // FASTLÅST ELEVENLABS NØGLE
+        // FASTLÅST ELEVENLABS NØGLE OG ADGANGSKODE
         // ==========================================
         const LOCKED_ELEVENLABS_KEY = "sk_c84044e2725f2ced47294b5e46adf869db800fb50da8076a";
         const ELEVENLABS_VOICE_ID = "ccflMOX8sqdvzn7NBkqd";
+        const DELETE_PASSWORD = "Welcome1";
         
         // Data variabler
         let folders = ["Safety", "Public", "All Pax Area", "Shop"];
@@ -840,11 +841,17 @@
 
         function deleteFolder(e, folderName) {
             e.stopPropagation();
-            if (confirm(`Are you sure you want to delete folder "${folderName}" and its saved announcements?`)) {
+            const password = prompt(`Indtast kode for at slette mappen "${folderName}":`);
+            
+            if (password === null) return; // Brugeren trykkede Annuller
+            
+            if (password === DELETE_PASSWORD) {
                 folders = folders.filter(f => f !== folderName);
                 savedAnnouncements = savedAnnouncements.filter(a => a.folder !== folderName);
                 saveDataToFirebase();
                 if (activeFolder === folderName) activeFolder = "Safety";
+            } else {
+                alert("Forkert adgangskode! Mappen blev ikke slettet.");
             }
         }
 
@@ -1006,9 +1013,15 @@
         }
 
         function deleteSavedItem(id) {
-            if (confirm("Are you sure you want to delete this saved announcement?")) {
+            const password = prompt("Indtast kode for at slette dette udkald:");
+            
+            if (password === null) return; // Brugeren trykkede Annuller
+
+            if (password === DELETE_PASSWORD) {
                 savedAnnouncements = savedAnnouncements.filter(a => a.id !== id);
                 saveDataToFirebase();
+            } else {
+                alert("Forkert adgangskode! Udkaldet blev ikke slettet.");
             }
         }
 
